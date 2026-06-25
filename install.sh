@@ -5,8 +5,11 @@
 # will not duplicate the settings entry.
 set -euo pipefail
 
-SRC="$(cd "$(dirname "$0")" && pwd)/rephrase-prompt.sh"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SRC="$HERE/rephrase-prompt.sh"
 DEST="${HOME}/.claude/hooks/rephrase-prompt.sh"
+SRC2="$HERE/translate-output.sh"
+DEST2="${HOME}/.claude/hooks/translate-output.sh"
 SETTINGS="${HOME}/.claude/settings.json"
 
 # --- deps ----------------------------------------------------------------
@@ -35,4 +38,37 @@ jq --arg cmd "$DEST" '
 
 echo "installed → $DEST"
 echo "registered in $SETTINGS (backup: $SETTINGS.bak)"
-echo "done. New Claude Code sessions will rephrase prompts ≥60 chars."
+
+# --- optional: output-translation hook (MessageDisplay) ------------------
+# Off by default. Enable interactively (y) or non-interactively with INSTALL_TRANSLATE=1.
+want_translate=0
+if [ "${INSTALL_TRANSLATE:-0}" = "1" ]; then
+  want_translate=1
+elif [ -t 0 ]; then
+  read -rp "Also install the output-translation hook (read replies in your language)? [y/N] " yn
+  case "$yn" in [yY]|[yY][eE][sS]) want_translate=1 ;; esac
+fi
+
+if [ "$want_translate" = 1 ]; then
+  lang="${TRANSLATE_LANG:-}"
+  if [ -z "$lang" ] && [ -t 0 ]; then
+    read -rp "Translation language? [French] " lang
+  fi
+  lang="${lang:-French}"
+
+  [ -f "$SRC2" ] || { echo "error: $SRC2 not found"; exit 1; }
+  install -m 0755 "$SRC2" "$DEST2"
+  "$DEST2" --selftest >/dev/null || { echo "error: translate selftest failed, aborting"; exit 1; }
+
+  tmp=$(mktemp)
+  jq --arg dest "$DEST2" --arg cmd "$DEST2 $lang" '
+    .hooks.MessageDisplay //= []
+    | .hooks.MessageDisplay |= map(select(((.hooks // [])[]?.command // "") | startswith($dest) | not))
+    | .hooks.MessageDisplay += [{hooks: [{type: "command", command: $cmd, timeout: 10}]}]
+  ' "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
+
+  echo "installed → $DEST2 (language: $lang)"
+  echo "done. New sessions rephrase prompts ≥60 chars and show replies in $lang."
+else
+  echo "done. New Claude Code sessions will rephrase prompts ≥60 chars."
+fi

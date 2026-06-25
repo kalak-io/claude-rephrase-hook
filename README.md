@@ -38,6 +38,38 @@ real prompt runs. That adds a small amount of latency and token spend per
 prompt. Haiku is cheap and fast, but it is not free — raise `MIN_CHARS` or
 remove the hook if you don't want it.
 
+## Output translation (optional)
+
+The mirror image, for reading rather than writing. An optional `MessageDisplay`
+hook (`translate-output.sh`) translates Claude's on-screen prose into your
+language while **the interaction stays English**:
+
+```
+Claude writes (transcript, code, commits): "Here is the plan. Run `git status`."
+you read on screen (French):                "Voici le plan. Exécutez `git status`."
+```
+
+- **Display-only.** It replaces only what's rendered in your terminal. The
+  transcript, code, commit messages, and what Claude sees next turn keep the
+  original English — `--verbose` shows the untranslated text.
+- **Prose only.** Code blocks, inline code, identifiers, paths, URLs and numbers
+  are preserved verbatim; only natural language is translated.
+- **Language is a command arg.** Chosen at install (default French); it lives as
+  the hook command in `~/.claude/settings.json` (`translate-output.sh French`).
+  Change it by editing that arg or re-running `./install.sh`.
+- **Model:** the `haiku` tier alias by default (no dated pin to retire);
+  override with an optional 2nd arg (`translate-output.sh French sonnet`).
+- **Recursion-guarded** and **fails open**, same as the rephrase hook — any
+  error or timeout shows the original English.
+- **Kill switch:** set `TRANSLATE_OUTPUT=0` to disable without uninstalling.
+
+**Cost & latency — read this before enabling.** In the interactive terminal
+`MessageDisplay` fires once per batch of completed lines *as the reply streams*,
+and Claude Code holds each batch until the hook returns (10s timeout). So every
+streamed batch incurs a Haiku round-trip before it renders — streaming feels
+chunkier/slower and every reply spends translation tokens. Tool-call-only turns
+don't trigger it. This is why it's **off by default**.
+
 ## Requirements
 
 - `bash`
@@ -57,6 +89,10 @@ cd claude-rephrase-hook
 registers it as a global `UserPromptSubmit` hook in `~/.claude/settings.json`
 (backing up to `settings.json.bak` first). It's idempotent — re-running won't
 create duplicate entries. New Claude Code sessions pick it up automatically.
+
+It then **asks** whether to also install the optional output-translation hook
+(default No) and, if yes, which language. To install it non-interactively:
+`INSTALL_TRANSLATE=1 TRANSLATE_LANG=French ./install.sh`.
 
 ### Manual install
 
@@ -80,17 +116,19 @@ If you'd rather not run the script: copy `rephrase-prompt.sh` somewhere on disk,
 ## Verify
 
 ```sh
-./rephrase-prompt.sh --selftest
-# → selftest OK
+./rephrase-prompt.sh --selftest    # → selftest OK
+./translate-output.sh --selftest   # → selftest OK (if you installed it)
 ```
 
 This checks the gating logic (empty / slash / bang / short are skipped, a normal
-sentence is rephrased) without making any `claude` call.
+sentence is rephrased; for the translator: blank deltas, guards and the kill
+switch skip) without making any `claude` call.
 
 ## Uninstall
 
-Remove the `UserPromptSubmit` entry from `~/.claude/settings.json` and delete
-`~/.claude/hooks/rephrase-prompt.sh`.
+Remove the `UserPromptSubmit` (and, if present, `MessageDisplay`) entries from
+`~/.claude/settings.json` and delete `~/.claude/hooks/rephrase-prompt.sh` (and
+`~/.claude/hooks/translate-output.sh`).
 
 ## License
 
