@@ -28,8 +28,7 @@ These are deliberate and were chosen on purpose — preserve them:
   Env vars are only for runtime toggles (`TRANSLATE_OUTPUT=0` kill switch,
   `INSTALL_TRANSLATE=1` for non-interactive install).
 - **No rigid model pins.** Default to the tier alias `haiku` (auto-tracks the
-  current model), not a dated snapshot. (`rephrase-prompt.sh` still carries a
-  dated pin — loosen it the same way if touched.)
+  current model), not a dated snapshot. Both hooks already do this.
 - **Optional features are opt-in** in the installer, never forced on.
 - **Fail open, always `exit 0`.** Any error / missing dep / empty result → the
   hook produces no output and never blocks or breaks the session.

@@ -6,7 +6,7 @@
 set -uo pipefail
 
 # --- knobs ---------------------------------------------------------------
-MODEL="claude-haiku-4-5-20251001"   # pinned; matches the rest of the setup
+MODEL="haiku"                       # tier alias; auto-tracks current Haiku (no dated pin to retire)
 MIN_CHARS=60                        # ponytail: skip short prompts; tune freely
 # -------------------------------------------------------------------------
 

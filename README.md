@@ -22,8 +22,8 @@ Haiku for a clean rewrite and injects it as `additionalContext`.
 - **Skips** (passes through untouched): empty prompts, slash-commands (`/…`),
   bash passthrough (`!…`), and anything under **60 characters** (confirmations,
   short replies). Tunable via `MIN_CHARS` at the top of the script.
-- **Model:** pinned to `claude-haiku-4-5-20251001` (`MODEL` knob at the top of
-  the script — bump it when the model retires).
+- **Model:** the `haiku` tier alias (`MODEL` knob at the top of the script) —
+  auto-tracks the current Haiku, no dated pin to retire.
 - **No API key:** reuses your Claude Code auth via `claude -p`.
 - **No MCP:** the sub-call runs with MCP disabled for speed and privacy.
 - **Recursion-guarded:** the nested `claude -p` call won't re-trigger the hook.
