@@ -21,7 +21,14 @@ Haiku for a clean rewrite and injects it as `additionalContext`.
 
 - **Skips** (passes through untouched): empty prompts, slash-commands (`/…`),
   bash passthrough (`!…`), and anything under **60 characters** (confirmations,
-  short replies). Tunable via `MIN_CHARS` at the top of the script.
+  short replies). Tunable via `MIN_CHARS` at the top of the script. It also
+  skips pasted content (`<pasted_content`), Claude Code command and bash
+  markup (`<command-`, `<bash-`) and prompts that start with
+  `UNATTENDED SESSION` (automated runs).
+- **French only (opt-in):** with `REPHRASE_FRENCH_ONLY=1` in the hook's
+  environment, the hook rewrites only prompts with French markers (accents or
+  common French words). Set it in the hook command, for example
+  `REPHRASE_FRENCH_ONLY=1 ~/.claude/hooks/rephrase-prompt.sh`.
 - **Model:** the `haiku` tier alias (`MODEL` knob at the top of the script) —
   auto-tracks the current Haiku, no dated pin to retire.
 - **No API key:** reuses your Claude Code auth via `claude -p`.
