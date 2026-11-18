@@ -1,130 +1,102 @@
-# claude-rephrase-hook
+# prompt-rephraser
 
-A prompt hook for [Claude Code](https://docs.claude.com/en/docs/claude-code),
-[Codex](https://github.com/openai/codex) and the Antigravity CLI (`agy`) that
-rewrites your prompt into clear, idiomatic English before the agent reads it. It is a writing
-aid for non-native English speakers.
+A prompt hook for coding agents that rewrites your prompt into clear, idiomatic
+English before the agent reads it. It is a writing aid for people who are not
+fluent in English, and it works in [Claude Code](https://docs.claude.com/en/docs/claude-code),
+[Codex](https://github.com/openai/codex) and the Antigravity CLI (`agy`).
 
-It does **not** answer your prompt or change what you asked for. It rewrites the
-wording into clean English, preserving every identifier, path, and code snippet
-verbatim, and injects that as extra context. Claude is told to prefer your
-original wording if the two ever conflict.
+The hook does not answer your prompt or change what you asked for. It rewrites
+the wording, keeps every identifier, path and code snippet verbatim, and gives
+the rewrite to the agent as extra context. The agent is told to prefer your
+original wording if the two disagree.
 
 ```
-you type:   "can u make the auth midleware to check token expiry strict pls"
-Claude sees: "Please make the auth middleware enforce strict token-expiry checks."
+you type:        "can u make the auth midleware to check token expiry strict pls"
+the agent reads: "Please make the auth middleware enforce strict token-expiry checks."
 ```
+
+The rewrite runs on the lightest model of an agent CLI that you already use.
+Each CLI uses its own login, so you need no API key.
+
+## Supported agents
+
+| Agent | Hook event | Default rewrite model | Rewrite call |
+|---|---|---|---|
+| Claude Code | `UserPromptSubmit` | `haiku` (tier alias) | `claude -p` |
+| Codex | `UserPromptSubmit` | `gpt-6-luna` (pinned, Codex has no tier alias) | `codex exec --ignore-user-config` |
+| Antigravity CLI | `PreInvocation` | `gemini-3.8-flash-low` (pinned, see `agy models`) | `agy -p` |
+
+`agy` fires `PreInvocation` before every model call of a turn. The hook rewrites
+only on the first call (`invocationNum` 0) and injects the rewrite as a system
+step.
 
 ## How it works
 
-On each prompt, the hook decides whether to rewrite. If so, it asks the lightest
-model of a provider CLI for a clean rewrite and injects it as
-`additionalContext`. It runs as `UserPromptSubmit` in Claude Code and Codex, and
-as `PreInvocation` in `agy`. `agy` fires
-`PreInvocation` before every model call of a turn, so the hook rewrites only on
-the first one (`invocationNum` 0) and injects the rewrite as a system step.
+On each prompt, the hook decides whether to rewrite. If so, it asks a provider
+CLI for a clean rewrite and injects the result into the agent's context.
 
-- **Skips** (passes through untouched): empty prompts, slash-commands (`/…`),
-  bash passthrough (`!…`), and anything under **60 characters** (confirmations,
-  short replies). Tunable via `MIN_CHARS` at the top of the script. It also
-  skips pasted content (`<pasted_content`), Claude Code command and bash
-  markup (`<command-`, `<bash-`) and prompts that start with
-  `UNATTENDED SESSION` (automated runs).
-- **Provider:** the first argument of the hook command, `claude`, `codex` or
-  `agy`. Without it, the hook uses the CLI of the harness that runs it (`agy`
-  sends `PreInvocation`, Codex sends a `turn_id`, else Claude Code).
-- **Model:** the lightest model of the provider, overridable with a second
-  argument (`rephrase-prompt.sh codex gpt-6-luna`):
+- **Skips:** the hook passes these prompts through untouched:
+  - Empty prompts, slash commands (`/…`) and bash passthrough (`!…`).
+  - Prompts under 60 characters, such as confirmations. `MIN_CHARS` at the top
+    of the script sets the limit.
+  - Pasted content (`<pasted_content`), harness markup (`<command-`, `<bash-`)
+    and unattended runs (`UNATTENDED SESSION`).
+- **Language:** the hook rewrites every prompt over the limit, English ones too.
+- **Provider:** the first argument of the hook command picks the CLI that
+  rewrites: `claude`, `codex` or `agy`. Without it, the hook uses the CLI of the
+  agent that runs it. It detects that agent from the payload: `agy` sends
+  `PreInvocation`, Codex sends a `turn_id`, and Claude Code sends neither.
+- **Model:** a second argument replaces the default model, for example
+  `rephrase-prompt.sh codex gpt-6-luna`.
+- **No MCP:** the rewrite call runs without MCP servers for `claude` and
+  `codex`. `agy` has no flag for this, so its call loads your `agy` config.
+- **Recursion guard:** the nested CLI call does not trigger the hook again.
+- **Fails open:** if any step fails, the hook exits with no output and your
+  prompt goes through unchanged. It never blocks a prompt.
 
-  | Provider | Default model | Call |
-  |---|---|---|
-  | `claude` | `haiku` (tier alias) | `claude -p` |
-  | `codex` | `gpt-6-luna` (pinned, no tier alias exists) | `codex exec --ignore-user-config` |
-  | `agy` | `gemini-3.8-flash-low` (pinned, see `agy models`) | `agy -p` |
-- **No API key:** each CLI uses its own login.
-- **No MCP:** the sub-call runs with MCP disabled for speed and privacy.
-- **Recursion-guarded:** the nested CLI call does not re-trigger the hook.
-- **Fails open:** any error, missing dependency, or empty rewrite → the hook
-  exits cleanly and your original prompt goes through unchanged. It can never
-  block or break a prompt.
+### Cost and latency
 
-### Cost & latency
-
-Every qualifying prompt (≥60 chars) spawns one CLI call before your real prompt
-runs. A run measured on this repo took about 5 s with `claude`, 7.5 s with
-`codex` and 9 s with `agy`. Raise `MIN_CHARS` or remove the hook if the delay is too long.
-
-## Output translation (optional, Claude Code only)
-
-The mirror image, for reading rather than writing. An optional `MessageDisplay`
-hook (`translate-output.sh`) translates Claude's on-screen prose into your
-language while **the interaction stays English**:
-
-```
-Claude writes (transcript, code, commits): "Here is the plan. Run `git status`."
-you read on screen (French):                "Voici le plan. Exécutez `git status`."
-```
-
-- **Display-only.** It replaces only what's rendered in your terminal. The
-  transcript, code, commit messages, and what Claude sees next turn keep the
-  original English — `--verbose` shows the untranslated text.
-- **Prose only.** Code blocks, inline code, identifiers, paths, URLs and numbers
-  are preserved verbatim; only natural language is translated.
-- **Language is a command arg.** Chosen at install (default French); it lives as
-  the hook command in `~/.claude/settings.json` (`translate-output.sh French`).
-  Change it by editing that arg or re-running `./install.sh`.
-- **Model:** the `haiku` tier alias by default (no dated pin to retire);
-  override with an optional 2nd arg (`translate-output.sh French sonnet`).
-- **Recursion-guarded** and **fails open**, same as the rephrase hook — any
-  error or timeout shows the original English.
-- **Kill switch:** set `TRANSLATE_OUTPUT=0` to disable without uninstalling.
-
-**Cost & latency — read this before enabling.** In the interactive terminal
-`MessageDisplay` fires once per batch of completed lines *as the reply streams*,
-and Claude Code holds each batch until the hook returns (10s timeout). So every
-streamed batch incurs a Haiku round-trip before it renders — streaming feels
-chunkier/slower and every reply spends translation tokens. Tool-call-only turns
-don't trigger it. This is why it's **off by default**.
+Each prompt over the limit starts one CLI call before the agent runs. One
+measured run took about 5 s with `claude`, 7.5 s with `codex` and 9 s with
+`agy`. If the delay is too long, raise `MIN_CHARS` or remove the hook.
 
 ## Requirements
 
-- `bash`
-- [`jq`](https://jqlang.github.io/jq/)
-- at least one of `claude`, `codex` or `agy`, installed and authenticated
-  (no API key: each CLI uses its own login).
-  Codex runs hooks only with `hooks = true` under `[features]` in
-  `~/.codex/config.toml`.
+- `bash` and [`jq`](https://jqlang.github.io/jq/).
+- At least one of `claude`, `codex` or `agy`, installed and logged in.
+- For Codex, `hooks = true` under `[features]` in `~/.codex/config.toml`.
 
 ## Install
 
 ```sh
-git clone https://github.com/kalak-io/claude-rephrase-hook.git
-cd claude-rephrase-hook
+git clone https://github.com/kalak-io/prompt-rephraser.git
+cd prompt-rephraser
 ./install.sh
 ```
 
-For each CLI on your PATH, `install.sh` copies the hook into its hooks directory
-and registers it (backing up the file to `.bak` first):
+For each CLI on your PATH, `install.sh` copies the hook into the hooks directory
+of that CLI and registers it. It backs up each config file to `.bak` first:
 
-| CLI | Hook file | Registered in | Event |
-|---|---|---|---|
-| `claude` | `~/.claude/hooks/rephrase-prompt.sh` | `~/.claude/settings.json` | `UserPromptSubmit` |
-| `codex` | `~/.codex/hooks/rephrase-prompt.sh` | `~/.codex/hooks.json` | `UserPromptSubmit` |
-| `agy` | `~/.gemini/config/hooks/rephrase-prompt.sh` | `~/.gemini/config/hooks.json` (key `rephrase-prompt`) | `PreInvocation` |
+| CLI | Hook file | Registered in |
+|---|---|---|
+| `claude` | `~/.claude/hooks/rephrase-prompt.sh` | `~/.claude/settings.json` |
+| `codex` | `~/.codex/hooks/rephrase-prompt.sh` | `~/.codex/hooks.json` |
+| `agy` | `~/.gemini/config/hooks/rephrase-prompt.sh` | `~/.gemini/config/hooks.json`, key `rephrase-prompt` |
 
-Each harness rewrites with its own CLI. To use one provider everywhere, run
-`REPHRASE_PROVIDER=claude ./install.sh`. Re-running replaces the entry, it does
-not duplicate it. Codex asks you to trust the new hook on its next start.
+Each agent rewrites with its own CLI by default. To use one provider for every
+agent, run `REPHRASE_PROVIDER=claude ./install.sh`. If you run the installer
+again, it replaces its own entry and keeps your other hooks. It also writes
+through a symlinked config file. Codex asks you to trust the new hook on its
+next start.
 
-It then **asks** whether to also install the optional output-translation hook
-(default No) and, if yes, which language. To install it non-interactively:
-`INSTALL_TRANSLATE=1 TRANSLATE_LANG=French ./install.sh`.
+The script copies the hook. After you change `rephrase-prompt.sh`, run
+`./install.sh` again.
 
 ### Manual install
 
-If you'd rather not run the script: copy `rephrase-prompt.sh` somewhere on disk,
-`chmod +x` it, and add this to `~/.claude/settings.json` (same shape in
-`~/.codex/hooks.json`, see `install.sh` for the `agy` shape):
+Copy `rephrase-prompt.sh` to a folder, make it executable, and register it.
+Claude Code and Codex use the same shape, in `~/.claude/settings.json` and
+`~/.codex/hooks.json`:
 
 ```json
 {
@@ -132,7 +104,7 @@ If you'd rather not run the script: copy `rephrase-prompt.sh` somewhere on disk,
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "/path/to/rephrase-prompt.sh", "timeout": 60 }
+          { "type": "command", "command": "/path/to/rephrase-prompt.sh claude", "timeout": 60 }
         ]
       }
     ]
@@ -140,23 +112,65 @@ If you'd rather not run the script: copy `rephrase-prompt.sh` somewhere on disk,
 }
 ```
 
+`agy` keys `~/.gemini/config/hooks.json` by hook name:
+
+```json
+{
+  "rephrase-prompt": {
+    "PreInvocation": [
+      { "type": "command", "command": "/path/to/rephrase-prompt.sh agy", "timeout": 60 }
+    ]
+  }
+}
+```
+
+## Output translation (optional, Claude Code only)
+
+`translate-output.sh` does the reverse, for reading. It is a Claude Code
+`MessageDisplay` hook that translates the agent's on-screen prose into your
+language, while the conversation itself stays in English:
+
+```
+the agent writes (transcript, code, commits): "Here is the plan. Run `git status`."
+you read on screen (French):                  "Voici le plan. Exécutez `git status`."
+```
+
+Codex and `agy` have no equivalent event, so this hook is for Claude Code only.
+
+- **Display only:** the hook changes only what your terminal shows. The
+  transcript, the code, the commit messages and the next turn keep the English
+  text. `--verbose` shows the original.
+- **Prose only:** code blocks, inline code, identifiers, paths, URLs and numbers
+  stay verbatim.
+- **Arguments:** the first argument is the language (default French), the
+  second is the model (default `haiku`), for example
+  `translate-output.sh French sonnet`.
+- **Kill switch:** set `TRANSLATE_OUTPUT=0` to turn it off without uninstalling.
+- Like the rephrase hook, it has a recursion guard and fails open.
+
+Read this before you turn it on. `MessageDisplay` fires once per batch of lines
+while the reply streams, and Claude Code waits for the hook before it shows each
+batch (10 s timeout). Every batch therefore costs one model call, and streaming
+feels slower. That is why the installer asks first, with No as the default. To
+install it without the question, run
+`INSTALL_TRANSLATE=1 TRANSLATE_LANG=French ./install.sh`.
+
 ## Verify
 
 ```sh
 ./rephrase-prompt.sh --selftest    # → selftest OK
-./translate-output.sh --selftest   # → selftest OK (if you installed it)
+./translate-output.sh --selftest   # → selftest OK
 ```
 
-This checks the gating logic (empty / slash / bang / short are skipped, a normal
-sentence is rephrased, the provider is detected from each harness payload; for the translator: blank deltas, guards and the kill
-switch skip) without making any model call.
+The self-tests check which prompts the hook skips and which agent it detects
+from each payload. They make no model call.
 
 ## Uninstall
 
-Remove the `rephrase-prompt.sh` entries from the files in the install table
-(and, if present, the `MessageDisplay` entry in `~/.claude/settings.json`), then
-delete the hook files.
+Remove the `rephrase-prompt.sh` entries from the files in the install table,
+and the `MessageDisplay` entry in `~/.claude/settings.json` if you installed the
+translation. Then delete the hook files.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
