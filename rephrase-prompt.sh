@@ -28,6 +28,12 @@ should_rephrase() {                 # return 0 = rephrase, 1 = skip
   return 0
 }
 
+hook_enabled() {                    # return 0 = run, 1 = off. Pure, reads the environment only.
+  [ "${REPHRASE_PROMPT:-1}" = "0" ] && return 1   # kill switch
+  [ -n "${CREW_SEAT:-}" ] && return 1             # a crew agent seat: crew writes its prompts, no human types
+  return 0
+}
+
 default_model() {
   case "$1" in
     claude) echo haiku ;;        # tier alias, auto-tracks current Haiku
@@ -67,12 +73,16 @@ if [ "${1:-}" = "--selftest" ]; then
   [ "$(detect_provider '{"hookEventName":"PreInvocation","lastUserInput":"x"}')" = agy ] || { echo "FAIL detect agy"; exit 1; }
   [ "$(detect_provider '{"hook_event_name":"UserPromptSubmit","turn_id":"t","prompt":"x"}')" = codex ] || { echo "FAIL detect codex"; exit 1; }
   [ "$(detect_provider '{"hook_event_name":"UserPromptSubmit","prompt":"x"}')" = claude ] || { echo "FAIL detect claude"; exit 1; }
+  ( unset CREW_SEAT REPHRASE_PROMPT; hook_enabled ) || { echo "FAIL enabled"; exit 1; }
+  ( CREW_SEAT=build1 hook_enabled ) && { echo "FAIL crew seat"; exit 1; }
+  ( REPHRASE_PROMPT=0 hook_enabled ) && { echo "FAIL kill switch"; exit 1; }
   echo "selftest OK"; exit 0
 fi
 
 # Recursion guard: the nested CLI call inherits this var; its own copy of this
 # hook sees it and exits immediately.
 [ -n "${REPHRASE_HOOK_ACTIVE:-}" ] && exit 0
+hook_enabled || exit 0
 
 payload=$(cat)
 event=$(jq -r '.hook_event_name // .hookEventName // "UserPromptSubmit"' <<<"$payload" 2>/dev/null)
