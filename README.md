@@ -41,6 +41,10 @@ CLI for a clean rewrite and injects the result into the agent's context.
     of the script sets the limit.
   - Pasted content (`<pasted_content`), harness markup (`<command-`, `<bash-`)
     and unattended runs (`UNATTENDED SESSION`).
+  - Every prompt of a [crew](https://github.com/kalak-io/crew) agent seat
+    (`CREW_SEAT` is set). crew writes those prompts, and no human types them.
+- **Kill switch:** set `REPHRASE_PROMPT=0` to turn the hook off without
+  uninstalling it.
 - **Language:** the hook rewrites every prompt over the limit, English ones too.
 - **Provider:** the first argument of the hook command picks the CLI that
   rewrites: `claude`, `codex` or `agy`. Without it, the hook uses the CLI of the
